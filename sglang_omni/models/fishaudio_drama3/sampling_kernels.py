@@ -47,7 +47,7 @@ PHILOX_SEED_MODULUS = 1 << 63
 FIRST_DRAW_STREAM = 0
 RAS_DRAW_STREAM = 1
 FIRST_CODEBOOK_HEAD_STREAM = 2
-VALIDATED_COMPUTE_CAPABILITY = (9, 0)
+VALIDATED_COMPUTE_CAPABILITIES = ((9, 0), (10, 0))
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -298,7 +298,7 @@ def main_block_width(candidate_count: int) -> int:
 
 def untested_gpu_reason(device: torch.device) -> str | None:
     major, minor = torch.cuda.get_device_capability(device)
-    if (major, minor) == VALIDATED_COMPUTE_CAPABILITY:
+    if (major, minor) in VALIDATED_COMPUTE_CAPABILITIES:
         return None
     else:
         return f"untested GPU sm_{major}{minor}"

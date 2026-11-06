@@ -29,7 +29,7 @@ from sglang_omni.models.fishaudio_drama3 import tower_kernels
 from sglang_omni.models.fishaudio_drama3.audio_decoder import AudioDecoder, DecoderLayer
 from sglang_omni.models.fishaudio_drama3.hf_config import FishOmniConfig
 from sglang_omni.models.fishaudio_drama3.sampling_kernels import (
-    VALIDATED_COMPUTE_CAPABILITY,
+    VALIDATED_COMPUTE_CAPABILITIES,
 )
 from sglang_omni.models.fishaudio_drama3.tower_kernels import (
     MAX_FUSED_ROWS,
@@ -75,10 +75,10 @@ def published_server_args() -> Iterator[None]:
 
 def require_validated_gpu() -> None:
     compute_capability = torch.cuda.get_device_capability()
-    if compute_capability != VALIDATED_COMPUTE_CAPABILITY:
+    if compute_capability not in VALIDATED_COMPUTE_CAPABILITIES:
         pytest.skip(
-            f"the fused layers are validated only on compute capability "
-            f"{VALIDATED_COMPUTE_CAPABILITY}, this GPU is {compute_capability}"
+            f"the fused layers are validated only on compute capabilities "
+            f"{VALIDATED_COMPUTE_CAPABILITIES}, this GPU is {compute_capability}"
         )
     else:
         pass
@@ -1054,7 +1054,7 @@ def test_the_resolver_takes_only_plain_bf16_layers_and_a_plain_kv_pool(
         validated_gpu.setattr(
             torch.cuda,
             "get_device_capability",
-            lambda device=None: VALIDATED_COMPUTE_CAPABILITY,
+            lambda device=None: (9, 0),
         )
         assert unsupported_reason(decoder, kv_pool, layer_ids, device) is None
         assert "not a CUDA device" in unsupported_reason(
@@ -1129,7 +1129,7 @@ def test_this_gpu_takes_the_fused_layers_only_if_validated() -> None:
 
     reason = unsupported_reason(decoder, kv_pool, layer_ids, device)
 
-    if (major, minor) == VALIDATED_COMPUTE_CAPABILITY:
+    if (major, minor) in VALIDATED_COMPUTE_CAPABILITIES:
         assert reason is None
     else:
         assert reason == f"untested GPU sm_{major}{minor}"
@@ -1183,10 +1183,12 @@ def resolver_reason_with_compute_capability(
     )
 
 
-def test_compute_capability_9_0_goes_on_to_the_next_check(
+@pytest.mark.parametrize("compute_capability", [(9, 0), (10, 0)])
+def test_validated_compute_capabilities_go_on_to_the_next_check(
     monkeypatch: pytest.MonkeyPatch,
+    compute_capability: tuple[int, int],
 ) -> None:
-    reason = resolver_reason_with_compute_capability(monkeypatch, (9, 0))
+    reason = resolver_reason_with_compute_capability(monkeypatch, compute_capability)
 
     assert reason is not None and reason.startswith("deterministic inference is on")
 
@@ -1196,7 +1198,6 @@ def test_compute_capability_9_0_goes_on_to_the_next_check(
     [
         ((8, 6), "untested GPU sm_86"),
         ((8, 9), "untested GPU sm_89"),
-        ((10, 0), "untested GPU sm_100"),
         ((12, 0), "untested GPU sm_120"),
     ],
 )

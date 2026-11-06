@@ -146,47 +146,50 @@ class AttentionBreak(Protocol):
         key: torch.Tensor | None,
         value: torch.Tensor | None,
         output: torch.Tensor,
-        save_kv_cache: bool,
-        layer_id: int,
-        *,
-        use_mha_companion: bool,
-        key_value_num_tokens: int | None,
+        save_kv_cache: bool = True,
+        key_value_num_tokens: int | None = None,
+        idx_output: torch.Tensor | None = None,
+        lse_output: torch.Tensor | None = None,
     ) -> None: ...
 
 
 class CaptureBreakRecorder:
-    def __init__(self, attention_break: AttentionBreak) -> None:
-        self.attention_break = attention_break
+    def __init__(self) -> None:
         self.layer_ids_by_token_count: dict[int, list[int]] = {}
 
-    def __call__(
+    def wrap(
         self,
-        query: torch.Tensor,
-        key: torch.Tensor | None,
-        value: torch.Tensor | None,
-        output: torch.Tensor,
-        save_kv_cache: bool,
+        attention_break: AttentionBreak,
         layer_id: int,
-        *,
-        use_mha_companion: bool,
-        key_value_num_tokens: int | None,
-    ) -> None:
-        if torch.cuda.is_current_stream_capturing():
-            self.layer_ids_by_token_count.setdefault(query.shape[0], []).append(
-                layer_id
+    ) -> AttentionBreak:
+        def record(
+            query: torch.Tensor,
+            key: torch.Tensor | None,
+            value: torch.Tensor | None,
+            output: torch.Tensor,
+            save_kv_cache: bool = True,
+            key_value_num_tokens: int | None = None,
+            idx_output: torch.Tensor | None = None,
+            lse_output: torch.Tensor | None = None,
+        ) -> None:
+            if torch.cuda.is_current_stream_capturing():
+                self.layer_ids_by_token_count.setdefault(query.shape[0], []).append(
+                    layer_id
+                )
+            else:
+                pass
+            attention_break(
+                query,
+                key,
+                value,
+                output,
+                save_kv_cache,
+                key_value_num_tokens,
+                idx_output,
+                lse_output,
             )
-        else:
-            pass
-        self.attention_break(
-            query,
-            key,
-            value,
-            output,
-            save_kv_cache,
-            layer_id,
-            use_mha_companion=use_mha_companion,
-            key_value_num_tokens=key_value_num_tokens,
-        )
+
+        return record
 
 
 class EndOfSpeechControlledLogits(nn.Module):

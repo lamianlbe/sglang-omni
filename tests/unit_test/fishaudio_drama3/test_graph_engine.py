@@ -14,7 +14,7 @@ import pytest
 import torch
 
 from sglang_omni.models.fishaudio_drama3.sampling_kernels import (
-    VALIDATED_COMPUTE_CAPABILITY,
+    VALIDATED_COMPUTE_CAPABILITIES,
 )
 from sglang_omni.models.fishaudio_drama3.tower_kernels import MAX_FUSED_ROWS
 from tests.unit_test.fishaudio_drama3.graph_checks import (
@@ -365,7 +365,7 @@ def first_problems(problems: list[str]) -> str:
 
 
 def is_on_validated_gpu(run: GraphEngineRun) -> bool:
-    return run.facts.device_capability == VALIDATED_COMPUTE_CAPABILITY
+    return run.facts.device_capability in VALIDATED_COMPUTE_CAPABILITIES
 
 
 def test_engines_start_as_specified(engine_runs: GraphEngineRuns) -> None:

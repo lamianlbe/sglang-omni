@@ -26,7 +26,7 @@ from sglang_omni.models.fishaudio_drama3.sampling_kernels import (
     SCORE_KEY_BITS,
     SELECTED_CANDIDATES,
     TAIL_BLOCK_WIDTH,
-    VALIDATED_COMPUTE_CAPABILITY,
+    VALIDATED_COMPUTE_CAPABILITIES,
     CodebookSampler,
     triton_sampling_unsupported_reason,
 )
@@ -194,10 +194,10 @@ def require_triton_device() -> None:
 def require_validated_gpu() -> None:
     require_triton_device()
     compute_capability = torch.cuda.get_device_capability()
-    if compute_capability != VALIDATED_COMPUTE_CAPABILITY:
+    if compute_capability not in VALIDATED_COMPUTE_CAPABILITIES:
         pytest.skip(
-            f"the Triton kernels are validated only on compute capability "
-            f"{VALIDATED_COMPUTE_CAPABILITY}, this GPU is {compute_capability}"
+            f"the Triton kernels are validated only on compute capabilities "
+            f"{VALIDATED_COMPUTE_CAPABILITIES}, this GPU is {compute_capability}"
         )
     else:
         pass
@@ -798,7 +798,7 @@ def test_unsupported_devices_and_widths_keep_the_pytorch_path(
             validated_gpu.setattr(
                 torch.cuda,
                 "get_device_capability",
-                lambda device=None: VALIDATED_COMPUTE_CAPABILITY,
+                lambda device=None: (9, 0),
             )
             assert triton_sampling_unsupported_reason(cuda, 4096, 4097) is None
             assert triton_sampling_unsupported_reason(cuda, 64, 65) is None
@@ -816,7 +816,7 @@ def test_this_gpu_takes_the_triton_kernels_only_if_validated() -> None:
 
     reason = triton_sampling_unsupported_reason(torch.device("cuda"), 4096, 4097)
 
-    if (major, minor) == VALIDATED_COMPUTE_CAPABILITY:
+    if (major, minor) in VALIDATED_COMPUTE_CAPABILITIES:
         assert reason is None
     else:
         assert reason == f"untested GPU sm_{major}{minor}"
@@ -847,10 +847,12 @@ def test_rows_of_32_columns_keep_the_pytorch_path(
     assert triton_sampling_unsupported_reason(cuda, 33, 33) is None
 
 
-def test_compute_capability_9_0_takes_the_triton_kernels(
+@pytest.mark.parametrize("compute_capability", [(9, 0), (10, 0)])
+def test_validated_compute_capabilities_take_the_triton_kernels(
     monkeypatch: pytest.MonkeyPatch,
+    compute_capability: tuple[int, int],
 ) -> None:
-    patch_cuda_platform(monkeypatch, (9, 0))
+    patch_cuda_platform(monkeypatch, compute_capability)
 
     assert triton_sampling_unsupported_reason(torch.device("cuda"), 4096, 4097) is None
 

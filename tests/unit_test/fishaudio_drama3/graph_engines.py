@@ -14,13 +14,13 @@ from pathlib import Path
 
 import torch
 from sglang.kernels.ops.attention import decode_attention
-from sglang.srt.layers import radix_attention
 from sglang.srt.layers.attention.hybrid_linear_attn_backend import (
     HybridLinearAttnBackend,
 )
 from sglang.srt.layers.attention.triton_backend import TritonAttnBackend
 from sglang.srt.layers.moe.fused_moe_triton import FusedMoE
 from sglang.srt.layers.quantization.fp8 import Fp8MoEMethod
+from sglang.srt.layers.radix_attention import RadixAttention
 from sglang.srt.mem_cache.memory_pool import HybridLinearKVPool, HybridReqToTokenPool
 from sglang.srt.model_executor.runner.prefill_cuda_graph_runner import (
     PrefillCudaGraphRunner,
@@ -98,9 +98,7 @@ class GraphRecordingEngineBuilder(Drama3EngineBuilder):
             async_decode_min_batch_size=spec.async_decode_min_batch_size,
         )
         self.spec = spec
-        self.capture_break_recorder = CaptureBreakRecorder(
-            radix_attention.breakable_unified_attention_with_output
-        )
+        self.capture_break_recorder = CaptureBreakRecorder()
         self.lean_choice_recorder = LeanChoiceRecorder(
             decode_attention.lean_capture_policy,
             decode_attention.lean_decode_seqlen_gate,
@@ -151,9 +149,14 @@ class GraphRecordingEngineBuilder(Drama3EngineBuilder):
             model_worker.model_runner.req_to_token_pool.size, torch.device(device)
         )
         sampling.sample_top_k_top_p = DrawRecorder(model, sampling.sample_top_k_top_p)
-        radix_attention.breakable_unified_attention_with_output = (
-            self.capture_break_recorder
-        )
+        for module in model.modules():
+            if isinstance(module, RadixAttention):
+                module._eager_attention = self.capture_break_recorder.wrap(  # noqa: leading-underscore -- SGLang's attention capture hook.
+                    module._eager_attention,
+                    module.layer_id,  # noqa: leading-underscore -- Preserve the bound SGLang hook.
+                )
+            else:
+                pass
         tower_prefill = model.model.tower_prefill
         assert tower_prefill is not None
         model.model.tower_prefill = CountingTowerPrefill(
