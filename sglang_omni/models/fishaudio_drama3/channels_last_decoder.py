@@ -77,6 +77,54 @@ else:
     pass
 
 
+class PhaseLinearUpsample(torch.nn.Module):
+    """A non-overlapping transposed convolution expressed as one dense projection."""
+
+    weight: torch.Tensor
+    bias: torch.Tensor | None
+
+    def __init__(self, convolution: torch.nn.ConvTranspose1d) -> None:
+        super().__init__()
+        if (
+            convolution.kernel_size != convolution.stride
+            or convolution.groups != 1
+            or convolution.dilation != (1,)
+            or convolution.padding != (0,)
+            or convolution.output_padding != (0,)
+        ):
+            raise ValueError("phase projection requires non-overlapping, unpadded taps")
+        else:
+            pass
+        self.stride_frames: int = convolution.stride[0]
+        self.output_channels: int = convolution.out_channels
+        self.register_buffer(
+            "weight",
+            convolution.weight.detach()
+            .permute(2, 1, 0)
+            .reshape(self.stride_frames * self.output_channels, convolution.in_channels)
+            .contiguous(),
+        )
+        self.register_buffer(
+            "bias",
+            (
+                convolution.bias.detach().repeat(self.stride_frames)
+                if convolution.bias is not None
+                else None
+            ),
+        )
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        batch_size, _, frame_count = hidden_states.shape
+        projected = F.linear(hidden_states.transpose(1, 2), self.weight, self.bias)
+        return (
+            projected.reshape(
+                batch_size, frame_count * self.stride_frames, self.output_channels
+            )
+            .transpose(1, 2)
+            .contiguous()
+        )
+
+
 class ChannelsLastDecoder:
     def __init__(self, codec: DAC, *, dtype: torch.dtype) -> None:
         if triton is None:
@@ -96,6 +144,24 @@ class ChannelsLastDecoder:
                 pass
         codec.quantizer.to(dtype)
         codec.decoder.to(dtype)
+        for module_path, convolution in list(codec.quantizer.named_modules()):
+            if (
+                isinstance(convolution, torch.nn.ConvTranspose1d)
+                and dtype == torch.float16
+                and convolution.weight.is_cuda
+                and torch.cuda.get_device_capability(convolution.weight.device)
+                == (10, 0)
+                and convolution.kernel_size == convolution.stride
+                and convolution.groups == 1
+                and convolution.dilation == (1,)
+                and convolution.padding == (0,)
+                and convolution.output_padding == (0,)
+            ):
+                codec.quantizer.set_submodule(
+                    module_path, PhaseLinearUpsample(convolution)
+                )
+            else:
+                pass
         self.conv_weights: dict[int, torch.Tensor] = {
             id(module): channels_last_weight(module)
             for module in codec.decoder.modules()

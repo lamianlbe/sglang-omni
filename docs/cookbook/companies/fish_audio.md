@@ -10,4 +10,5 @@ titlesonly: true
 
 ../fishaudio_s2_pro.md
 ../fishaudio_drama3.md
+../fishaudio_drama3_b200.md
 ```

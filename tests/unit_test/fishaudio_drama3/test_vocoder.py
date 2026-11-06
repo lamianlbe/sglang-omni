@@ -13,6 +13,7 @@ from dac.nn.layers import Snake1d
 
 from sglang_omni.models.fishaudio_drama3.channels_last_decoder import (
     ChannelsLastDecoder,
+    PhaseLinearUpsample,
     snake_channels_last_kernel,
 )
 from sglang_omni.models.fishaudio_drama3.config import Drama3VocoderFactoryArgs
@@ -503,6 +504,33 @@ class CpuSnakeDecoder(ChannelsLastDecoder):
         self.snake_padding.append((pad_left, pad_right))
         activated = module(hidden_states.transpose(1, 2)).transpose(1, 2).contiguous()
         return F.pad(activated, (0, 0, pad_left, pad_right))
+
+
+@pytest.mark.parametrize("stride_frames", [1, 2, 4])
+@pytest.mark.parametrize("has_bias", [False, True])
+@pytest.mark.parametrize("frame_count", [1, 11])
+def test_phase_projection_preserves_transposed_convolution_samples(
+    stride_frames: int, has_bias: bool, frame_count: int
+) -> None:
+    torch.manual_seed(frame_count + stride_frames)
+    convolution = torch.nn.ConvTranspose1d(
+        4, 6, stride_frames, stride=stride_frames, bias=has_bias
+    ).double()
+    upsample = PhaseLinearUpsample(convolution)
+    hidden_states = torch.randn(2, 4, frame_count * 2, dtype=torch.float64)[..., ::2]
+
+    with torch.no_grad():
+        expected = convolution(hidden_states)
+        actual = upsample(hidden_states)
+
+    assert actual.is_contiguous()
+    torch.testing.assert_close(actual, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_phase_projection_rejects_overlapping_taps() -> None:
+    convolution = torch.nn.ConvTranspose1d(4, 6, 4, stride=2)
+    with pytest.raises(ValueError, match="non-overlapping"):
+        PhaseLinearUpsample(convolution)
 
 
 @pytest.mark.parametrize("context", ["sequence", "residual", "block", "decoder"])

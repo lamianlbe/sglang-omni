@@ -26,6 +26,8 @@ sgl-omni serve \
   --port 8000
 ```
 
+For the measured SM100 configuration, see [Drama 3 on B200](fishaudio_drama3_b200.md).
+
 ## Synthesize Speech
 
 The server supports plain text-to-speech, optionally cloning a voice from reference audio, returned as one response or
